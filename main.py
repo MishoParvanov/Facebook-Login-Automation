@@ -9,34 +9,41 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 
-def get_new_ip():
-    """Fetch a new IP address from the API."""
+def change_ip():
+    """Change IP address using the provided API."""
     try:
-        response = requests.get("https://api.myip.com")
-        if response.status_code == 200:
-            return response.json()['ip']
+        response = requests.get(
+            "https://api.ltesocks.io/v2/port/reset/395bc511ccd51db8de4b778aa5c011560f8abd6a75e48e33a80ce4911f039576"
+        )
+        if response.status_code == 202:
+            print("IP address successfully changed.")
+            return True  # Return True if IP change is successful
+        else:
+            print(f"Failed to change IP address. Status code: {response.status_code}")
+            return False  # Return False if IP change fails
     except Exception as e:
-        print(f"Error while getting new IP: {e}")
-        return None
+        print(f"Error while changing IP: {e}")
+        return False  # Return False if there's an exception
 
 
 def login_facebook(account):
     """Log in to Facebook using provided account credentials."""
-
-    # Set up Selenium options
     options = webdriver.ChromeOptions()
-    options.add_argument("--incognito")  # Enable incognito mode
-    options.add_argument("--disable-cache")  # Disable cache
+    options.add_argument("--incognito")  # Open browser in incognito mode
+    options.add_argument("--disable-cache")  # Disable caching
     options.add_argument("--disable-application-cache")  # Disable application cache
     options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, "
+        "like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    )  # Set user agent
 
+    # Initialize the Chrome driver
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    driver.get("https://www.facebook.com")
+
+    driver.get("https://www.facebook.com")  # Navigate to Facebook
 
     try:
-        # Wait for cookie consent
-        time.sleep(1)
+        time.sleep(1)  # Wait for the page to load
 
         # Attempt to accept cookies
         try:
@@ -45,9 +52,9 @@ def login_facebook(account):
             )
             cookie_accept_button.click()
         except Exception:
-            pass  # Ignore if cookie button is not found
+            pass  # Ignore if no button is found
 
-        # Fill in email and password fields
+        # Fill in email and password
         email_elem = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.NAME, "email"))
         )
@@ -62,13 +69,12 @@ def login_facebook(account):
         login_button = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.NAME, "login"))
         )
-        time.sleep(2)  # Wait for the button to be visible
-        driver.execute_script("arguments[0].click();", login_button)  # Click using JavaScript
+        time.sleep(2)  # Wait for the button to be clickable
+        driver.execute_script("arguments[0].click();", login_button)  # Click the login button
 
-        # Wait for the page to load
-        time.sleep(3)
+        time.sleep(3)  # Wait for the login process to complete
 
-        # Check for unsuccessful login
+        # Check for login success or failure
         try:
             error_message = driver.find_elements(By.XPATH, "//div[@class='_9ay7']")
             yes_continue_button = driver.find_elements(By.XPATH, "//button[text()='Yes, Continue']")
@@ -77,16 +83,16 @@ def login_facebook(account):
 
             if error_message or yes_continue_button or login_as_message or facebook_message:
                 print(f"Login failed for {account['login']}: Incorrect email or password.")
-                return None
+                return None  # Return None if login fails
 
-            # Record selected cookies upon successful login
+            # Collect cookies
             selected_cookies = {}
             all_cookies = driver.get_cookies()
             for cookie in all_cookies:
                 if cookie['name'] in ['datr', 'sb', 'm_pixel_ratio', 'wd', 'c_user', 'fr', 'xs']:
                     selected_cookies[cookie['name']] = cookie['value']
 
-            # Format the cookies in the desired order
+            # Order cookies for the output
             ordered_cookies = [
                 f"datr={selected_cookies.get('datr', '')}",
                 f"sb={selected_cookies.get('sb', '')}",
@@ -96,50 +102,51 @@ def login_facebook(account):
                 f"fr={selected_cookies.get('fr', '')}",
                 f"xs={selected_cookies.get('xs', '')}"
             ]
-            account["cookies"] = "; ".join(ordered_cookies).strip("; ")
+            account["cookies"] = "; ".join(ordered_cookies).strip("; ")  # Store cookies in the account
+
+            # Record the actual proxy used
+            account["proxy"] = driver.command_executor._url  # Get the actual proxy used
             print(f"Successfully logged in: {account['login']}")
-            return account
+            return account  # Return account with cookies and proxy
 
         except Exception as e:
             print(f"Error during login for {account['login']}: {e}")
-            return None
+            return None  # Return None if an error occurs
 
     finally:
-        driver.quit()  # Close the browser
+        driver.quit()  # Ensure the driver quits after use
 
 
 def main():
     """Main function to manage the login process."""
+    # Check if IP change was successful
+    if not change_ip():
+        print("Exiting program due to IP change failure.")
+        return
 
-    # Read account data from the JSON file
+    # Load accounts from the JSON file
     with open('accounts.json') as f:
         accounts = json.load(f)
 
-    successful_logins = []
+    successful_logins = []  # List to hold successful logins
 
+    # Iterate through accounts and attempt to log in
     for account in accounts:
-        # Change IP before login
-        new_ip = get_new_ip()
-        if new_ip:
-            print("IP successfully changed")
-
-        # Attempt to log in to Facebook
         result = login_facebook(account)
-        if result:
+        if result:  # If login is successful
             successful_logins.append({
                 "login": account["login"],
                 "password": account["password"],
-                "proxy": account.get("proxy", "No proxy provided"),  # Add proxy from accounts.json
-                "cookies": result["cookies"]  # Use formatted cookies
+                "proxy": result["proxy"],  # Use actual proxy from successful login
+                "cookies": result["cookies"]
             })
 
-    # Save successful logins to a JSON file
+    # Save successful logins to JSON file
     with open('successful_logins.json', 'w') as f:
         json.dump(successful_logins, f, indent=4)
 
-    # Output message indicating the process completion
     print("Login process completed. Check 'successful_logins.json' for results.")
 
 
 if __name__ == "__main__":
-    main()
+    main()  # Run the main function
